@@ -1,0 +1,381 @@
+// ==UserScript==
+// @name         Freebitco.in 1 auto collector %1000 / Rewardpoints / ReCaptcha
+// @namespace    http://www.youtube.com/c/MogiHostTutoriais
+// @version      2.5.6
+// @description  Autoclaim Freebitco.in
+// @description  Please use my Referal-Link https://freebitco.in/?r=2876729
+// @author       Mogi Host
+// @match        https://freebitco.in/*
+// @require      http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js
+// ==/UserScript==
+
+
+var baseBetAmount = 0.0000005;
+var betMultiplier = 2;
+var supportedLoseSequenceBetsLength = 5;
+var betsPatternsLengthInDecimal = [4];
+var betPatternReversed = 1; //will create the pattern reverse only when equal to 1!!!!
+var patternPlayPeriodInSeconds = 900; //the period of playing a single pattern.
+var binarySequenceOpposite = 1;//if equal to 1, will create binary opposed sequences pattern. value vary from 0 to 2
+
+//no need to touch the rest!!!!!
+//first we load all bets sequences
+var betsPatterns = [];
+function reverseString(str) {
+   return str.split('').reverse().join('');
+}
+function isNumberBetweenInterval(number, a, b, inclusive) {
+   var min = Math.min(a, b),
+       max = Math.max(a, b);
+
+   return inclusive ? number >= min && number <= max :number > min && number < max;
+}
+function loadBetsPattern(){
+   betsPatternsLengthInDecimal.forEach(function (t) {
+       //looking for regular binary
+       if(isNumberBetweenInterval(binarySequenceOpposite,0, 1, true)){
+           current = [];
+           for (i = 0; i < Math.pow(2, t); i++) {
+               //it support only 9!!!
+               binary = ("00000000" +i.toString(2)).slice(-1 * t);
+               current.push( binary );
+           }
+           betsPatterns.push(current);
+           //looking for reverse
+           if(betPatternReversed === 1){
+               current = [];
+               for (i = Math.pow(2, t) - 1; i >= 0 ; i--){
+                   //it support only 9!!!
+                   binary = ("00000000" +i.toString(2)).slice(-1 * t);
+                   current.push( binary );
+               }
+               betsPatterns.push(current);
+           }
+       }
+
+
+       //looking for binary opposite
+       if(isNumberBetweenInterval(binarySequenceOpposite,1, 2, true)){
+           current = [];
+           for (i = 0; i < Math.pow(2, t); i++) {
+               //it support only 9!!!
+               binary = ("00000000" +i.toString(2)).slice(-1 * t);
+               current.push( reverseString(binary) );
+           }
+           betsPatterns.push(current);
+           //looking for reverse
+           if(betPatternReversed === 1){
+               current = [];
+               for (i = Math.pow(2, t) - 1; i >= 0 ; i--){
+                   //it support only 9!!!
+                   binary = ("00000000" +i.toString(2)).slice(-1 * t);
+                   current.push( reverseString(binary) );
+               }
+               betsPatterns.push(current);
+           }
+       }
+
+
+
+   });
+}
+loadBetsPattern();
+console.log(betsPatterns);
+var currentPattern = 0;
+var currentPatternSequenceIndex = 0;
+var currentInnerSequencePosition = 0;
+var betsCounter = 0;
+var currentLoseSequenceBetsCounter = 0;
+var maxWait = 500;
+var betsButtons = [$('#double_your_btc_bet_hi_button'),$('#double_your_btc_bet_lo_button')];//we can reverse them here if needed
+var bets = ["h", "l"];
+var currentBetIndex = parseInt(betsPatterns[currentPattern][currentPatternSequenceIndex].charAt(currentInnerSequencePosition));
+var $betButton = betsButtons[currentBetIndex];
+var gameStopped = false;
+var patternStartingDateTime = new Date();
+
+function getSecondsBetweenDates(startDate, endDate) {
+   var diff = endDate.getTime() - startDate.getTime();
+   return (diff / 1000);
+}
+
+function setRandomClientSeed() {
+   var chaine_CLIENT =
+       "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+   var generate, i;
+   var CLIENT_SEED = "";
+   var CLIENT_SEED_size = 64;
+   for (i = 0; i < CLIENT_SEED_size; i++) {
+       if (!i) {
+           generate = Math.floor(Math.random() *chaine_CLIENT.length + 1); //un nombre entre 1 et 62
+       } else {
+           generate = Math.floor(Math.random() *chaine_CLIENT.length); //un nombre entre 0 et 62
+       }
+
+       CLIENT_SEED += chaine_CLIENT.charAt(generate);
+   }
+
+
+
+   $("#next_client_seed").val(CLIENT_SEED);
+   return CLIENT_SEED;
+}
+function getRandomWait() {
+   var wait = Math.floor(Math.random() * maxWait) + 100;//was 100
+   //console.log('Waiting for ' + wait + 'ms before next bet.');
+   return wait;
+}
+function setMultiply() {
+   var current = $('#double_your_btc_stake').val();
+   var nbr = parseInt(current * 100000000 * betMultiplier)/ 100000000;
+   var multiply = nbr.toFixed(8);
+   $('#double_your_btc_stake').val(multiply);
+   return multiply;
+}
+
+function reset() {
+   $('#double_your_btc_stake').val(parseFloat(baseBetAmount).toFixed(8));
+}
+
+function stop() {
+   console.log('Game will stop soon! Let me finish.');
+   gameStopped = true;
+}
+
+function start() {
+
+   console.log('Game started!');
+
+   //change client seed, that have to be changed for every roll
+   setRandomClientSeed();
+   //return to base bet amount
+   reset();
+
+   //we start betting
+   setTimeout(function () {
+       $betButton.trigger('click');
+   }, getRandomWait());
+}
+
+// Unbind old shit
+$('#double_your_btc_bet_lose').unbind();
+$('#double_your_btc_bet_win').unbind();
+
+
+// Loser
+$('#double_your_btc_bet_lose').bind("DOMSubtreeModified",function(event) {
+   if ($(event.currentTarget).is(':contains("lose")')) {
+       /*when losing, follow current sequence, when finished start the next sequence*/
+
+       //save the old bet in current lose sequence and general bets counters
+
+       //index: local variable: will save the old value for a bit, till we update them.
+       index = currentPatternSequenceIndex;
+
+       currentInnerSequencePosition++;
+       currentPatternSequenceIndex =(currentPatternSequenceIndex +parseInt(currentInnerSequencePosition /betsPatterns[currentPattern][index].length) ) %betsPatterns[currentPattern].length;
+       currentInnerSequencePosition =currentInnerSequencePosition % betsPatterns[currentPattern][index].length;
+
+
+       currentLoseSequenceBetsCounter++;
+       betsCounter++;
+
+
+
+       console.log('Bet Stats::: betsCounter:'+betsCounter+';currentLoseSequenceBetsCounter:'+currentLoseSequenceBetsCounter+';currentBet:'+bets[currentBetIndex]);
+       console.log('You Lose! Betting again.');
+
+    //Changing the loose pattern
+    String.prototype.replaceAt=function(index, replacement) {
+            return this.substr(0, index) + replacement+ this.substr(index + replacement.length);
+    }
+    var change_old=betsPatterns[currentPattern][currentPatternSequenceIndex];
+    var change_new='0000';
+
+    for(var i=0; i<change_old.length; i++){
+        if(change_old.charAt(i)=='0')
+            change_new = change_new.replaceAt(i,'1');
+        else
+        change_new = change_new.replaceAt(i,'0');
+    }
+    betsPatterns[currentPattern][currentPatternSequenceIndex]=change_new;
+
+       //start working on the next bet
+       //change client seed, that have to be changed for every roll
+       setRandomClientSeed();
+       //multiply bet amount
+       setMultiply();
+
+       if(currentLoseSequenceBetsCounter <supportedLoseSequenceBetsLength){
+           //we still can bet supporting another lose bet, so we build the next bet
+           //we load next bet index from betsPattern
+           console.log('currentPattern: '+currentPattern+' || currentPatternSequenceIndex: '+currentPatternSequenceIndex+' || currentInnerSequencePosition: '+currentInnerSequencePosition);
+           currentBetIndex =parseInt(betsPatterns[currentPattern][currentPatternSequenceIndex].charAt(currentInnerSequencePosition));
+           //we load the next bet button
+           $betButton = betsButtons[currentBetIndex];
+           //we play another new bet
+           setTimeout(function () {
+               $betButton.trigger('click');
+           }, getRandomWait());
+
+
+
+       }else{
+           //we can't support another bet! so we stop the game
+           //nothing to do now, and the game will be stopped. but we need to make sure, that browser didn't refresh automatically
+           console.log('Game stopped after losing. supported lose sequence reached.');
+       }
+   }
+});
+
+// Winner
+$('#double_your_btc_bet_win').bind("DOMSubtreeModified",function(event) {
+   if ($(event.currentTarget).is(':contains("win")')) {
+
+
+       /*when winning, stop current sequence and start the next sequence.*/
+
+       //the first character in the next looped sequence
+       currentPatternSequenceIndex =++currentPatternSequenceIndex %betsPatterns[currentPattern].length;
+       currentInnerSequencePosition = 0;
+
+       //save the old winning bet
+       betsCounter ++;
+       currentLoseSequenceBetsCounter = 0;
+
+       console.log('Bet Stats::: betsCounter:'+betsCounter+';currentLoseSequenceBetsCounter:'+currentLoseSequenceBetsCounter+';currentBet:'+bets[currentBetIndex]);
+       console.log('You WON! Betting again.');
+
+       /*when winning, we check pattern validity. we change pattern every fixed minutes only when we win!!*/
+       if(getSecondsBetweenDates(patternStartingDateTime,new Date()) >= patternPlayPeriodInSeconds){
+           //we update the date
+           patternStartingDateTime = new Date();
+           //we loop the next pattern and start fresh
+           currentPattern = ++currentPattern %betsPatterns.length;
+           currentPatternSequenceIndex = 0;
+           currentInnerSequencePosition = 0;
+           console.log('Single Pattern Play Period Reached ==> Moving to the next pattern!');
+       }
+
+
+       if(!gameStopped){
+           //start working on the next bet
+           //change client seed, that have to be changed for every roll
+           setRandomClientSeed();
+           //return to base bet amount
+           reset();
+
+           //we load next bet index from betsPattern
+           console.log('currentPattern: '+currentPattern+' || currentPatternSequenceIndex: '+currentPatternSequenceIndex+' || currentInnerSequencePosition: '+currentInnerSequencePosition);
+           currentBetIndex =parseInt(betsPatterns[currentPattern][currentPatternSequenceIndex].charAt(currentInnerSequencePosition));
+           //we load the next bet button
+           $betButton = betsButtons[currentBetIndex];
+           setTimeout(function () {
+               $betButton.trigger('click');
+           }, getRandomWait());
+
+
+       }else{
+           console.log('Game Stopped.');
+       }
+
+   }
+});
+//starting the script
+
+
+(function() {
+    'use strict';
+var body = $('body');
+var points = {};
+var count_min = 1;
+var reward = {};
+    reward.select = function() {
+        reward.points = parseInt($('.user_reward_points').text().replace(',',""));
+        reward.bonustime = {};
+        if ($("#bonus_container_free_points").length != 0) {
+            reward.bonustime.text = $('#bonus_span_free_points').text();
+            reward.bonustime.hour = parseInt(reward.bonustime.text.split(":")[0]);
+            reward.bonustime.min = parseInt(reward.bonustime.text.split(":")[1]);
+            reward.bonustime.sec = parseInt(reward.bonustime.text.split(":")[2]);
+            reward.bonustime.current = reward.bonustime.hour * 3600 + reward.bonustime.min * 60 + reward.bonustime.sec;
+        } else
+            reward.bonustime.current = 0;
+        console.log(reward.bonustime.current);
+        if (reward.bonustime.current !== 0) {
+            console.log(reward.bonustime.current);
+        } else {
+            if (reward.points < 12) {
+                console.log("waiting for points");
+            }
+            else if (reward.points < 120) {
+                    console.log("waiting for points 60");
+                    RedeemRPProduct('free_points_1');
+                }
+            else if (reward.points < 600) {
+                    console.log("waiting for points 120");
+                    RedeemRPProduct('free_points_10');
+                }
+            else if (reward.points < 1200) {
+                    console.log("waiting for points 600");
+                    RedeemRPProduct('free_points_50');
+                }
+            else {
+                RedeemRPProduct('free_points_100');
+            }
+            if ($('#bonus_span_fp_bonus').length === 0)
+                if (reward.points >= 4400)
+                    RedeemRPProduct('fp_bonus_1000');
+        }
+    };
+    body.prepend(
+        $('<div/>').attr('style',"position:fixed;top:50px;left:0;z-index:999;width:400px;background-color:#227d5c;color: white; text-align: center;")
+            .append(
+                $('<div/>').attr('id','autofaucet')
+                    .append($('<p/> text-align: center').text("MOGIHOST"))
+                    .append($('<p/> text-align: center').text("Doação:"))
+                    .append($('<p/> text-align: center').text("15D9w4ZngxQ8i5W3cFhsU1dXemzyss8DD3"))
+                    .append($('<p/> text-align: center').text("(Clique para copiar)"))
+                    .append($('<p/>')
+                    )
+            ).click(function(){
+            var $temp = $('<input>').val("15D9w4ZngxQ8i5W3cFhsU1dXemzyss8DD3");
+            body.append($temp);
+            $temp.select();
+            document.execCommand("copy");
+            $temp.remove();
+        })
+    ).prepend($('<style/>')
+        .text("#autofaucet p { margin: 0; margin-left: 0px;  text-align: center; }")
+)
+    setTimeout(reward.select,1000);
+    setInterval(reward.select,60000);
+$(document).ready(function(){
+    console.log("Status: Page loaded.");
+    setTimeout(function(){
+        $('#free_play_form_button').click();
+        console.log("Status: Button ROLL clicked.");
+    }, random(2000,4000));
+    setInterval(function(){
+        console.log("Status: Elapsed time " + count_min + " minutes");
+        count_min = count_min + 1;
+    }, 60000);
+    setTimeout(function(){
+        $('.close-reveal-modal')[0].click();
+        console.log("Status: Button CLOSE POPUP clicked.");
+    }, random(12000,18000));
+    setInterval(function(){
+        $('#free_play_form_button').click();
+        console.log("Status: Button ROLL clicked again.");
+    }, random(3605000,3615000));
+});
+function random(min,max){
+   return min + (max - min) * Math.random();
+}
+})();
+    window.onload = function() {
+        document.getElementsByClassName("double_your_btc_link")[0].onclick = function() {
+                setTimeout(function(){if(document.getElementById("manual_bet_on") && confirm("Você quer começar o algoritmo MOGIHOST???")) start();1000});
+        };
+
+};
